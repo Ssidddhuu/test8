@@ -1,4 +1,4 @@
-public String executeSparkSQLShow(String sqlQuery) throws Exception {
+public String executeSparkSQLToJson(String sqlQuery) throws Exception {
     HttpPost sessionPost = livySparkDatabaseConfig.getConnection();
     sessionPost.setEntity(new StringEntity("{ \"kind\": \"pyspark\" }"));
 
@@ -14,31 +14,32 @@ public String executeSparkSQLShow(String sqlQuery) throws Exception {
     HttpPost statementPost = new HttpPost(statementUrl);
     statementPost.setHeader("Content-Type", "application/json");
 
-    String payload = "{ \"code\": \"spark.sql(\\\"" + sqlQuery + "\\\").show()\" }";
+    String payload = "{ \"code\": \"spark.sql(\\\"" + sqlQuery + "\\\").toJSON().collect()\" }";
     statementPost.setEntity(new StringEntity(payload));
 
     HttpResponse statementResponse = client.execute(statementPost);
     String statementJson = EntityUtils.toString(statementResponse.getEntity());
     int statementId = new JSONObject(statementJson).getInt("id");
 
-    // Poll for plain text result
+    // Poll for result
     String resultUrl = statementUrl + "/" + statementId;
-    String output = "";
-    boolean isDone = false;
+    String rawJson = "";
+    boolean isReady = false;
 
-    while (!isDone) {
+    while (!isReady) {
         Thread.sleep(2000);
         HttpResponse getResp = client.execute(new HttpGet(resultUrl));
-        String resultJson = EntityUtils.toString(getResp.getEntity());
+        String responseBody = EntityUtils.toString(getResp.getEntity());
 
-        JSONObject resultObj = new JSONObject(resultJson);
+        JSONObject resultObj = new JSONObject(responseBody);
         if ("available".equals(resultObj.getString("state"))) {
-            output = resultObj.getJSONObject("output")
-                              .getJSONObject("data")
-                              .getString("text/plain");
-            isDone = true;
+            rawJson = resultObj.getJSONObject("output")
+                               .getJSONObject("data")
+                               .getString("text/plain");
+            isReady = true;
         }
     }
 
-    return output;
+    // Clean raw JSON string
+    return rawJson.replace("\\\"", "\"").replace("\"[", "[").replace("]\"", "]");
 }
